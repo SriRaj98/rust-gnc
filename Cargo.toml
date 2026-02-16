@@ -1,0 +1,18 @@
+[package]
+name = "rust-gnc"
+version = "0.1.0"
+license = "MIT"
+edition = "2024"
+authors=["Sri Raj Malireddi"]
+description = "A no_std GNC (Guidance, Navigation, and Control) library for autonomous systems in Rust."
+repository = "https://github.com/SriRaj98/rust-gnc"
+
+[dependencies]
+# nalgebra is great for vector/matrix math in GNC
+nalgebra = { version = "0.32", default-features = false, features = ["macros"] }
+libm = "0.2"
+
+[dev-dependencies]
+# Only used for testing on your laptop
+approx = "0.5"
+
