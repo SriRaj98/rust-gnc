@@ -14,6 +14,7 @@ pub mod pid;
 pub mod mixer;
 pub mod axis;
 pub mod stabilizer;
+pub mod failsafe;
 
 // Re-exports: Providing a clean, flattened API for external crate users.
 // This allows for ergonomic usage like `use rust_gnc::control::PidController`.
@@ -29,3 +30,6 @@ pub use axis::AxisProcessor;
 
 #[doc(inline)]
 pub use stabilizer::{Stabilizer, AttitudeController, ArmingState};
+
+#[doc(inline)]
+pub use failsafe::{FailsafeMonitor, FailsafeLevel};

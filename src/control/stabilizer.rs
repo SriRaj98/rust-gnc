@@ -4,7 +4,7 @@
 //! control stack. It manages the lifecycle of the aircraft (Arming/Disarming) and 
 //! executes the primary control loop (Guidance -> Navigation -> Control).
 use crate::filters::{Filter, InertialInput};
-use crate::control::{AxisProcessor, Mixer, PidConfig, PidController};
+use crate::control::{AxisProcessor, FailsafeLevel, FailsafeMonitor, Mixer, PidConfig, PidController};
 use crate::units::{Radians, Attitude};
 
 /// Defines the operational safety state of the vehicle.
@@ -33,6 +33,7 @@ pub struct Stabilizer<F, M>
     pub attitude_controller: AttitudeController<F>,
     pub arming_state: ArmingState,
     pub mixer: M,
+    pub failsafe_monitor: FailsafeMonitor,
 }
 
 impl<F, M> Stabilizer<F, M> where 
@@ -44,7 +45,8 @@ impl<F, M> Stabilizer<F, M> where
         pitch_cfg: PidConfig,
         yaw_cfg: PidConfig,
         alpha: f32,
-        mixer: M
+        mixer: M,
+        failsafe_timeout: f32
     ) -> Self {
         Self {
             arming_state: ArmingState::Disarmed,
@@ -53,7 +55,8 @@ impl<F, M> Stabilizer<F, M> where
                 pitch_processor: AxisProcessor::new(F::new(alpha), PidController::new(pitch_cfg)),
                 yaw_processor: AxisProcessor::new(F::new(alpha), PidController::new(yaw_cfg)),
             },
-            mixer: mixer
+            mixer: mixer,
+            failsafe_monitor: FailsafeMonitor::new(failsafe_timeout),
         }
     }
 
@@ -79,12 +82,19 @@ impl<F, M> Stabilizer<F, M> where
     /// Executes a single iteration of the flight control loop.
     /// 
     /// This is the "Heartbeat" of the aircraft, typically running at 400Hz to 1kHz.
+    /// It coordinates safety checks, sensor fusion, and actuator mixing.
     /// 
     /// ### Logic Flow
-    /// 1. **Safety Check**: Verify arming status.
-    /// 2. **Axis Processing**: Filter sensor data and update PIDs for Roll and Pitch.
-    /// 3. **Yaw Normalization**: Handle circular wrap-around for heading control.
-    /// 4. **Mixing**: Combine axis demands with throttle for final motor signals.
+    /// 1. **Failsafe Evaluation**: Checks the system health/heartbeat against `current_time`.
+    /// 2. **Command Override**: If a failsafe is active, pilot inputs are overridden with 
+    ///    emergency values (e.g., leveling out and reducing throttle).
+    /// 3. **Arming Interlock**: Ensures zero motor output if the aircraft is disarmed.
+    /// 4. **Axis Processing**: Filters raw IMU data and calculates PID corrections for Roll/Pitch.
+    /// 5. **Heading Control**: Calculates the shortest-path error for Yaw (circular normalization).
+    /// 6. **Actuator Mixing**: Maps 3-axis demands and throttle into airframe-specific motor signals.
+    ///
+    /// ### Returns
+    /// Returns `M::Output`, which for a Quadcopter is `QuadMotorSignals`.
     pub fn tick(
         &mut self, 
         roll_input: InertialInput, 
@@ -92,8 +102,17 @@ impl<F, M> Stabilizer<F, M> where
         yaw_input: InertialInput,
         target: Attitude,
         throttle: f32,
-        dt: f32
+        dt: f32,
+        current_time: f32
     ) -> M:: Output {
+
+        let failsafe_level = self.failsafe_monitor.check(current_time);
+
+        let (effective_throttle, effective_target) = match failsafe_level {
+            FailsafeLevel::None => (throttle, target),
+            FailsafeLevel::Land => (throttle * 0.5, Attitude::default()), // 50% power & Level
+            FailsafeLevel::Kill => (0.0, Attitude::default()),            // Cut power
+        };
 
         // Safeguard: If disarmed, return zero motor outputs
         if self.arming_state == ArmingState::Disarmed {
@@ -101,13 +120,13 @@ impl<F, M> Stabilizer<F, M> where
         }
 
         // Process Roll and Pitch axes
-        let roll_output = self.attitude_controller.roll_processor.process(roll_input, target.roll, dt);
-        let pitch_output = self.attitude_controller.pitch_processor.process(pitch_input, target.pitch, dt);
+        let roll_output = self.attitude_controller.roll_processor.process(roll_input, effective_target.roll, dt);
+        let pitch_output = self.attitude_controller.pitch_processor.process(pitch_input, effective_target.pitch, dt);
         
         let current_yaw = self.attitude_controller.yaw_processor.filter.update(yaw_input, dt);
-        let yaw_error = current_yaw.shortest_distance_to(target.yaw);
+        let yaw_error = current_yaw.shortest_distance_to(effective_target.yaw);
         let yaw_output = self.attitude_controller.yaw_processor.pid.update_with_error(yaw_error, dt);
 
-        self.mixer.mix(roll_output, pitch_output, yaw_output, throttle)
+        self.mixer.mix(roll_output, pitch_output, yaw_output, effective_throttle)
     }
 }
