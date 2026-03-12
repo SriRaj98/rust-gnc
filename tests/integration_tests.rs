@@ -1,4 +1,5 @@
-use rust_gnc::control::MotorSignals;
+use rust_gnc::control::QuadMotorSignals;
+use rust_gnc::control::mixer::QuadXMixer;
 // tests/integration_tests.rs
 use rust_gnc::units::{Radians, Attitude};
 use rust_gnc::control::stabilizer::{Stabilizer, AttitudeController, ArmingState};
@@ -9,6 +10,7 @@ use rust_gnc::filters::{ComplementaryFilter, InertialInput};
 #[test]
 fn test_safety_disarm_isolation() {
     // Setup a standard controller
+    let mixer = QuadXMixer;
     let mut stabilizer = Stabilizer {
         arming_state: ArmingState::Disarmed,
         attitude_controller: AttitudeController {
@@ -16,6 +18,7 @@ fn test_safety_disarm_isolation() {
             pitch_processor: AxisProcessor::new(ComplementaryFilter::new(0.98), PidController::new(PidConfig { kp: 1.0, ki: 1.0, kd: 0.0, max_integral: 10.0 })),
             yaw_processor: AxisProcessor::new(ComplementaryFilter::new(0.98), PidController::new(PidConfig { kp: 1.2, ki: 1.0, kd: 0.0, max_integral: 10.0 })),
         },
+        mixer: mixer
     };
 
     // Simulate sensor input while disarmed
@@ -45,9 +48,9 @@ fn test_yaw_shortest_path_logic() {
 }
 
 /// Helper to create a tuned stabilizer for testing
-fn setup_test_stabilizer() -> Stabilizer<ComplementaryFilter> {
+fn setup_test_stabilizer() -> Stabilizer<ComplementaryFilter, QuadXMixer> {
     let cfg = PidConfig { kp: 1.0, ki: 0.1, kd: 0.05, max_integral: 10.0 };
-    Stabilizer::new(cfg.clone(), cfg.clone(), cfg.clone(), 0.98)
+    Stabilizer::new(cfg.clone(), cfg.clone(), cfg.clone(), 0.98, QuadXMixer)
 }
 
 #[test]
@@ -100,7 +103,7 @@ fn test_armed_response_to_tilt() {
     let level = InertialInput { rate: Radians(0.0), reference: Radians(0.0) };
     let target = Attitude::default();
 
-    let mut motors = MotorSignals::default();
+    let mut motors = QuadMotorSignals::default();
     for _ in 0..10 {
         motors = stabilizer.tick(roll_tilt, level, level, target, 0.5, 0.01);
     }

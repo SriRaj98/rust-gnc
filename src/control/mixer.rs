@@ -3,17 +3,24 @@
 //! This module implements the "Mixer" logic, which maps normalized control 
 //! signals from the PID controllers to individual motor output levels.
 //! 
-//! ### Configuration
-//! This mixer assumes a **Quad-X** configuration where:
-//! - **Front-Left (FL)** and **Rear-Right (RR)** motors rotate clockwise (CW).
-//! - **Front-Right (FR)** and **Rear-Left (RL)** motors rotate counter-clockwise (CCW).
+//! This module defines the interface for mapping control demands (Roll, Pitch, Yaw, Throttle)
+//! to physical actuator outputs.
+
+/// Common interface for different airframe geometries.
+pub trait Mixer {
+    /// The specific signal type produced by this mixer (e.g., 4 signals for a quad).
+    type Output;
+
+    /// Maps normalized control demands [-1.0, 1.0] and throttle [0.0, 1.0] to motor signals.
+    fn mix(&self, roll: f32, pitch: f32, yaw: f32, throttle: f32) -> Self::Output;
+}
 
 /// A collection of normalized pulse-width modulation (PWM) signals for 
 /// a quadcopter's Electronic Speed Controllers (ESCs).
 /// 
 /// Range: 0.0 (Stopped) to 1.0 (Full Power).
 #[derive(Debug, PartialEq, Clone, Copy, Default)]
-pub struct MotorSignals {
+pub struct QuadMotorSignals {
     /// Signal for the Front-Left motor.
     pub front_left: f32,
     /// Signal for the Front-Right motor.
@@ -25,9 +32,11 @@ pub struct MotorSignals {
 }
 
 /// A stateless utility for calculating motor power distribution.
-pub struct MotorMixer;
+pub struct QuadXMixer;
 
-impl MotorMixer {
+impl Mixer for QuadXMixer {
+    type Output = QuadMotorSignals;
+
     /// Mixes axis control signals and throttle into individual motor outputs.
     /// 
     /// This follows the standard Quad-X mixing matrix. The signs (+/-) for each 
@@ -42,7 +51,7 @@ impl MotorMixer {
     /// 
     /// ### Returns
     /// A `MotorSignals` struct with values clamped to the safe operating range [0.0, 1.0].
-    pub fn mix(roll: f32, pitch: f32, yaw: f32, throttle: f32) -> MotorSignals {
+    fn mix(&self, roll: f32, pitch: f32, yaw: f32, throttle: f32) -> Self::Output {
         // Mixing Matrix Calculation:
         // FL = Throttle + Roll + Pitch - Yaw
         // FR = Throttle - Roll + Pitch + Yaw
@@ -54,7 +63,7 @@ impl MotorMixer {
         let rl = throttle - roll + pitch + yaw;
         let rr = throttle + roll + pitch - yaw;
 
-        MotorSignals {
+        QuadMotorSignals {
             front_left: fl.clamp(0.0, 1.0),
             front_right: fr.clamp(0.0, 1.0),
             rear_left: rl.clamp(0.0, 1.0),

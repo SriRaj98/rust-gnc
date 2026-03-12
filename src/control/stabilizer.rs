@@ -4,7 +4,7 @@
 //! control stack. It manages the lifecycle of the aircraft (Arming/Disarming) and 
 //! executes the primary control loop (Guidance -> Navigation -> Control).
 use crate::filters::{Filter, InertialInput};
-use crate::control::{AxisProcessor, MotorMixer, MotorSignals, PidConfig, PidController};
+use crate::control::{AxisProcessor, Mixer, PidConfig, PidController};
 use crate::units::{Radians, Attitude};
 
 /// Defines the operational safety state of the vehicle.
@@ -25,18 +25,26 @@ pub struct AttitudeController<F> where F: Filter<Input = InertialInput, Output =
 /// 
 /// The `Stabilizer` manages state estimation and PID calculation for all axes, 
 /// eventually producing motor signals for the mixer.
-pub struct Stabilizer<F> where F: Filter<Input = InertialInput, Output = Radians> {
+pub struct Stabilizer<F, M>
+    where 
+        F: Filter<Input = InertialInput, Output = Radians>,
+        M: Mixer 
+{
     pub attitude_controller: AttitudeController<F>,
     pub arming_state: ArmingState,
+    pub mixer: M,
 }
 
-impl<F> Stabilizer<F> where F: Filter<Input = InertialInput, Output = Radians> {
-
+impl<F, M> Stabilizer<F, M> where 
+    F: Filter<Input = InertialInput, Output = Radians>, 
+    M: Mixer 
+{
     pub fn new(
         roll_cfg: PidConfig,
         pitch_cfg: PidConfig,
         yaw_cfg: PidConfig,
-        alpha: f32
+        alpha: f32,
+        mixer: M
     ) -> Self {
         Self {
             arming_state: ArmingState::Disarmed,
@@ -45,6 +53,7 @@ impl<F> Stabilizer<F> where F: Filter<Input = InertialInput, Output = Radians> {
                 pitch_processor: AxisProcessor::new(F::new(alpha), PidController::new(pitch_cfg)),
                 yaw_processor: AxisProcessor::new(F::new(alpha), PidController::new(yaw_cfg)),
             },
+            mixer: mixer
         }
     }
 
@@ -84,11 +93,11 @@ impl<F> Stabilizer<F> where F: Filter<Input = InertialInput, Output = Radians> {
         target: Attitude,
         throttle: f32,
         dt: f32
-    ) -> MotorSignals {
+    ) -> M:: Output {
 
         // Safeguard: If disarmed, return zero motor outputs
         if self.arming_state == ArmingState::Disarmed {
-            return MotorSignals::default();
+            return self.mixer.mix(0.0, 0.0, 0.0, 0.0);
         }
 
         // Process Roll and Pitch axes
@@ -99,6 +108,6 @@ impl<F> Stabilizer<F> where F: Filter<Input = InertialInput, Output = Radians> {
         let yaw_error = current_yaw.shortest_distance_to(target.yaw);
         let yaw_output = self.attitude_controller.yaw_processor.pid.update_with_error(yaw_error, dt);
 
-        MotorMixer::mix(roll_output, pitch_output, yaw_output, throttle)
+        self.mixer.mix(roll_output, pitch_output, yaw_output, throttle)
     }
 }

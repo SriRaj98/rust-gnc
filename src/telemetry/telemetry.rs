@@ -4,7 +4,7 @@
 //! Optimized for high-frequency binary logging in `no_std` environments.
 
 use crate::{Attitude, Position};
-use crate::control::mixer::MotorSignals;
+use crate::control::mixer::QuadMotorSignals;
 
 /// A packed, fixed-size snapshot of the vehicle state.
 /// 
@@ -47,7 +47,7 @@ impl TelemetryPacket {
         timestamp_ms: u32,
         attitude: Attitude,
         pos: Position,
-        motors: MotorSignals,
+        motors: QuadMotorSignals,
         armed: bool
     ) -> Self {
         Self {

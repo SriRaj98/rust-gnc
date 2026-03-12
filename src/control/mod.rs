@@ -22,7 +22,7 @@ pub mod stabilizer;
 pub use pid::{PidController, PidConfig};
 
 #[doc(inline)]
-pub use mixer::{MotorMixer, MotorSignals};
+pub use mixer::{Mixer, QuadMotorSignals, QuadXMixer};
 
 #[doc(inline)]
 pub use axis::AxisProcessor;
